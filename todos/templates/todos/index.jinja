@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Django-Jinja + Django-Ninja Todo App</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 520px; margin: 2rem auto; padding: 0 1rem; }
+        .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+        .row { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+        input { flex: 1; padding: 0.5rem; }
+        button { padding: 0.5rem 0.9rem; cursor: pointer; }
+        ul { list-style: none; padding: 0; }
+        li { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #eee; }
+        .done { text-decoration: line-through; color: #888; }
+        small { color: #555; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <h2>Todo App (Jinja2 + Ninja + JWT)</h2>
+
+    <!-- Login Section -->
+    <div class="card">
+        <strong>1. Login (Hardcoded Credentials)</strong>
+        <div class="row" style="margin-top: 0.5rem;">
+            <input id="username" value="{{ default_user }}" placeholder="Username">
+            <input id="password" type="password" value="{{ default_pass }}" placeholder="Password">
+            <button onclick="login()">Get JWT</button>
+        </div>
+        <small id="token-status">Status: Not logged in</small>
+    </div>
+
+    <!-- Todo Section -->
+    <div class="card">
+        <strong>2. Manage Todos</strong>
+        <div class="row" style="margin-top: 0.5rem;">
+            <input id="todo-input" placeholder="New task...">
+            <button onclick="addTodo()">Add</button>
+        </div>
+        <ul id="todo-list"></ul>
+    </div>
+
+    <script>
+        // Resolve Ninja API URLs dynamically via django-jinja's url() function
+        const LOGIN_URL = "{{ url('api-1.0.0:login_for_token') }}";
+        const TODOS_URL = "{{ url('api-1.0.0:list_todos') }}";
+
+        let jwtToken = localStorage.getItem("jwt_token") || "";
+
+        function updateStatus() {
+            const el = document.getElementById("token-status");
+            el.textContent = jwtToken ? `JWT Active: ${jwtToken.slice(0, 28)}...` : "Status: Not logged in";
+        }
+
+        function authHeaders() {
+            return {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${jwtToken}`
+            };
+        }
+
+        async function login() {
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+
+            const res = await fetch(LOGIN_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
+            });
+
+            if (!res.ok) {
+                alert("Login failed!");
+                return;
+            }
+            const data = await res.json();
+            jwtToken = data.access_token;
+            localStorage.setItem("jwt_token", jwtToken);
+            updateStatus();
+            loadTodos();
+        }
+
+        async function loadTodos() {
+            if (!jwtToken) return;
+            const res = await fetch(TODOS_URL, { headers: authHeaders() });
+            if (!res.ok) return;
+
+            const todos = await res.json();
+            const list = document.getElementById("todo-list");
+            list.innerHTML = "";
+
+            todos.forEach(t => {
+                const li = document.createElement("li");
+                li.innerHTML = `
+                    <span class="${t.completed ? 'done' : ''}" style="cursor:pointer" onclick="toggleTodo(${t.id})">
+                        ${t.title}
+                    </span>
+                    <button onclick="deleteTodo(${t.id})">Delete</button>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        async function addTodo() {
+            const input = document.getElementById("todo-input");
+            if (!input.value.trim()) return;
+
+            const res = await fetch(TODOS_URL, {
+                method: "POST",
+                headers: authHeaders(),
+                body: JSON.stringify({ title: input.value })
+            });
+
+            if (res.ok) {
+                input.value = "";
+                loadTodos();
+            } else {
+                alert("Unauthorized — click 'Get JWT' first.");
+            }
+        }
+
+        async function toggleTodo(id) {
+            await fetch(`${TODOS_URL}/${id}/toggle`, {
+                method: "PATCH",
+                headers: authHeaders()
+            });
+            loadTodos();
+        }
+
+        async function deleteTodo(id) {
+            await fetch(`${TODOS_URL}/${id}`, {
+                method: "DELETE",
+                headers: authHeaders()
+            });
+            loadTodos();
+        }
+
+        updateStatus();
+        loadTodos();
+    </script>
+</body>
+</html>
